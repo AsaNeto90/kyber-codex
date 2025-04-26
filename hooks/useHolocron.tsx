@@ -1,15 +1,19 @@
+import 'react-native-get-random-values';
 import { useState, useRef, useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as ExpoAudio from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import * as SecureStore from 'expo-secure-store';
 
 export const useHolocron = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
   const [isAudioAvailable, setIsAudioAvailable] = useState(false);
-  const recordingRef = useRef<ExpoAudio.Recording | null>(null);
-  const soundRef = useRef<ExpoAudio.Sound | null>(null);
+  const recordingRef = useRef<ExpoAudio.Audio.Recording | null>(null);
+  const soundRef = useRef<ExpoAudio.Audio.Sound | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Check if audio is available on the platform
   useEffect(() => {
@@ -38,6 +42,31 @@ export const useHolocron = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const initSession = async () => {
+      if (Platform.OS === 'web') {
+        const session = localStorage.getItem('holocron_session');
+        if (session) {
+          setSessionId(session);
+        } else {
+          const newSession = uuidv4();
+          localStorage.setItem('holocron_session', newSession);
+          setSessionId(newSession);
+        }
+      } else {
+        let existingSession = await SecureStore.getItemAsync('holocron_session');
+        if (!existingSession) {
+          existingSession = uuidv4();
+          await SecureStore.setItemAsync('holocron_session', existingSession);
+        }
+        setSessionId(existingSession);
+      }
+    };
+  
+    initSession();
+  }, []);
+   
 
   const startRecording = async () => {
     try {
@@ -102,6 +131,8 @@ export const useHolocron = () => {
 
   const sendToAI = async (uri: string) => {
     try {
+      if (!sessionId) throw new Error("Session not initialized yet.");
+
       const apiUrl = process.env.EXPO_PUBLIC_API_URL;
       if (!apiUrl) throw new Error('API_URL is not defined in environment variables');
 
@@ -121,9 +152,9 @@ export const useHolocron = () => {
           type: 'audio/mpeg',
         } as any);
       }
-      
-      formData.append('context', "You are a helpful Jedi Holocron assistant. Help Padawans with their studies in the Force.");
-      
+      formData.append('context', "You are a helpful Jedi Holocron assistant. Help Padawans with their studies in the Force. Keep answers short and to the point. Do not give long explanations. Use the Force wisely.");
+      formData.append('sessionId', sessionId);
+
       const aiResponse = await axios.post(`${apiUrl}/talk`, formData, {
         headers: {
           'Accept': 'audio/mpeg',
